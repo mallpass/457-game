@@ -1,44 +1,91 @@
 import socket
 import sys
+import json
 
-def start_client(ip, port):
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect((ip, port))
-    print(f"Connected to server at {ip}:{port}")
+buffer = ""
 
-    while True:
-        try:
-            # Wait to receive messages from the server
-            data = client.recv(1024)
 
-            # If no data is received, it means the server closed the connection
-            if not data:
-                print("Connection closed by the server.")
-                break
+def handle_message(client_sock, message):
+    try:
+        msg = json.loads(message)
+        message_type = msg.get("type")
 
-            # Split the received data by newlines to handle multiple messages
-            messages = data.decode().split('\n')
-            for message in messages:
-                if message:
-                    print(f"Server: {message}")
+        if message_type == "welcome":
+            print("Server:", msg["data"]["message"])
+            name = input("Enter your name: ")
+            send_name(client_sock, name)
+        elif message_type == "confirm":
+            print("Server:", msg["data"]["message"])
+        elif message_type == "question":
+            print(f"{msg['data']['label']}: {msg['data']['question']}")
+            for idx, choice in enumerate(msg["data"]["choices"]):
+                print(f"{idx + 1}. {choice}")
+            answer = input("Your answer: ")
+            send_answer(client_sock, answer)
+        elif message_type == "scoreboard":
+            print("Scoreboard:")
+            for player, score in msg["data"].items():
+                print(f"{player}: {score} points")
+        elif message_type == "thank_you":
+            print("Server:", msg["data"]["message"])
+        elif message_type == "wait":
+            print("Server:", msg["data"]["message"])
+        else:
+            print("Unknown message type:", message_type)
+    except json.JSONDecodeError:
+        print("Error decoding message:", message)
 
-                    # If the server asks for the player's name, allow input
-                    if "Please enter your name:" in message:
-                        name = input("Enter your name: ")
-                        client.send(name.encode())
 
-        except ConnectionResetError:
-            print("Connection was reset by the server.")
-            break
+def send_name(client_sock, name):
+    name_message = json.dumps({"type": "nameset", "data": {"name": name}})
+    client_sock.send((name_message + "\n").encode())
 
-    client.close()  # Close the client socket when done
+
+def send_answer(client_sock, answer):
+    answer_message = json.dumps({"type": "answer", "data": {"answer": answer}})
+    client_sock.send((answer_message + "\n").encode())
+
+
+def receive_messages(client_sock):
+    global buffer
+    try:
+        data = client_sock.recv(1024).decode()
+        if not data:
+            raise ConnectionError("Server has disconnected.")
+        buffer += data
+        messages = buffer.split("\n")
+
+        for message in messages[:-1]:
+            handle_message(client_sock, message)
+
+        buffer = messages[-1]
+    except (ConnectionError, OSError):
+        print("Lost connection to the server. Exiting...")
+        sys.exit(1)
+
+
+def start_client(host, port):
+    client_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client_sock.connect((host, int(port)))
+        print(f"Connected to server at {host}:{port}")
+
+        while True:
+            receive_messages(client_sock)
+
+    except ConnectionError:
+        print("Unable to connect to the server. Exiting...")
+    except KeyboardInterrupt:
+        print("Closing connection")
+    finally:
+        client_sock.close()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python3 game-client.py <IP> <Port>")
+        print("Usage: python3 client.py <IP> <Port>")
         sys.exit(1)
 
-    ip = sys.argv[1]
-    port = int(sys.argv[2])
-
-    start_client(ip, port)
+    host = sys.argv[1]
+    port = sys.argv[2]
+    start_client(host, port)

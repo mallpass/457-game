@@ -1,109 +1,300 @@
-import selectors
 import socket
-import types
+import selectors
 import sys
+import json
+import random
 
 sel = selectors.DefaultSelector()
-clients = {}  # Global dictionary to track connected clients
-num_connected = 0  # Global variable to track the number of connected clients
-names = {}  # Store player names
+clients = {}
+client_answers = {}
+client_states = {}
+game_questions = []
+
+questions = [
+    {
+        "question": "What is the capital of France?",
+        "choices": ["Paris", "Rome", "Madrid", "Berlin"],
+        "answer": "1"
+    },
+    {
+        "question": "What is 2 + 2?",
+        "choices": ["3", "4", "5", "6"],
+        "answer": "2"
+    },
+    {
+        "question": "Who wrote 'Hamlet'?",
+        "choices": ["Shakespeare", "Tolkien", "Rowling", "Austen"],
+        "answer": "1"
+    },
+    {
+        "question": "What is the largest planet in our solar system?",
+        "choices": ["Jupiter", "Saturn", "Earth", "Mars"],
+        "answer": "1"
+    },
+    {
+        "question": "How many heads are in the tricep?",
+        "choices": ["Four", "Two", "Three", "None"],
+        "answer": "Three"
+    },
+    {
+        "question": "Who gave Luffy the straw hat?",
+        "choices": ["Zoro", "His dad", "Garp", "Shanks"],
+        "answer": "Shanks"
+    },
+    {
+        "question": "Who is the first boss players will find in Elden Ring after leaving the cave?",
+        "choices": ["Morgot", "Tree Sentinal", "Knight Man", "Agheel"],
+        "answer": "Tree Sentinal"
+    },
+    {
+        "question": "Who won Mr. Olympia Classic Physique in 2024?",
+        "choices": ["Cbum", "Urs", "Sam Sulek", "Jeff Nippard"],
+        "answer": "Cbum"
+    },
+    {
+        "question": "How tall is Mount Everest",
+        "choices": ["Quite", "Not at all", "Kinda", "Mount what?"],
+        "answer": "Quite"
+    },
+    {
+        "question": "Who is the most meta in Mario Kart Wii",
+        "choices": ["Dry Bones Bullet Bike", "Mario Standard Kart", "Funky Kong Flame Runner", "Luigi Mach Bike"],
+        "answer": "Funky Kong Flame Runner"
+    },
+    {
+        "question": "What artist almost bought my friend's childhood home in Foco?",
+        "choices": ["Train", "21 Savage", "Aesop Rock", "Sting"],
+        "answer": "Train"
+    }
+]
+question_index = 0
+game_started = False
 
 
-def accept_wrapper(sock, num_players):
-    global num_connected
-    conn, addr = sock.accept()  # Accept the new connection
-    print(f"Client {addr} connected.")
-    conn.setblocking(False)  # Make the connection non-blocking
-    data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
-    events = selectors.EVENT_READ | selectors.EVENT_WRITE
-    sel.register(conn, events, data=data)
-
-    num_connected += 1
-    clients[addr] = conn
-
-    welcome_message = (f"Connected to server {addr[0]}, {addr[1]}. "
-                       f"Players {num_connected}/{num_players} are connected.")
-    conn.send(welcome_message.encode())
-
-    # Broadcast the current player count to all clients
-    broadcast_message(f"Waiting for required number of players {num_connected}/{num_players}")
-
-    # If the required number of players have connected, broadcast "All players have joined!" and start the game
-    if num_connected == num_players:
-        print("All players have connected!")
-        broadcast_message("All players have joined!")
-        # Move into game state and ask for names
-        request_player_names()
+def send_message(conn, message):
+    """Send a message to the client with a newline delimiter."""
+    conn.send((message + "\n").encode())
 
 
-def request_player_names():
-    """Ask all clients to enter their names."""
-    broadcast_message("Please enter your name:")
-    # Now the server will wait for client responses
+def accept_connection(sock):
+    conn, addr = sock.accept()
+    print(f"Accepted connection from {addr}")
+    conn.setblocking(False)
+    sel.register(conn, selectors.EVENT_READ, read_message)
+
+    welcome_message = json.dumps(
+        {"type": "welcome", "data": {"message": "Welcome! Please enter your name:"}}
+    )
+    send_message(conn, welcome_message)
 
 
-def broadcast_message(message):
-    message += "\n"  # Add newline as delimiter
-    for addr, client_socket in clients.items():
-        try:
-            client_socket.send(message.encode())
-        except Exception as e:
-            print(f"Failed to send message to {addr}: {e}")
+def read_message(conn):
+    try:
+        data = conn.recv(1024)
+        if data:
 
-
-def service_connection(key, mask):
-    sock = key.fileobj
-    data = key.data
-
-    if mask & selectors.EVENT_READ:
-        recv_data = sock.recv(1024)  # Read the data
-        if recv_data:
-            message = recv_data.decode()
-            print(f"Received data: {message} from {data.addr}")
-            # If we are waiting for player names
-            if data.addr not in names:
-                # Store the name and send confirmation back to the client
-                names[data.addr] = message.strip()
-                confirmation_message = f"Welcome: {names[data.addr]}"
-                sock.send(confirmation_message.encode())
-            else:
-                print(f"Unexpected message from {data.addr}: {message}")
+            messages = data.decode().split("\n")
+            for message in messages:
+                if message:
+                    handle_message(conn, message)
         else:
-            print(f"Closing connection to {data.addr}")
-            sel.unregister(sock)
-            sock.close()
-            clients.pop(data.addr, None)  # Remove client on disconnect
 
-    if mask & selectors.EVENT_WRITE and data.outb:
-        sent = sock.send(data.outb)
-        data.outb = data.outb[sent:]
+            handle_client_disconnect(conn)
+    except ConnectionError:
+        handle_client_disconnect(conn)
 
 
-def start_server(ip, port, num_players):
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((ip, port))
-    server.listen()
-    print(f"Server listening on {ip}:{port}")
-    print(f"Waiting for {num_players} players to connect...")
-    server.setblocking(False)
-    sel.register(server, selectors.EVENT_READ, data=None)
+def handle_message(conn, message):
+    try:
+        message_data = json.loads(message)
+        message_type = message_data["type"]
+
+        if message_type == "nameset":
+            handle_name(conn, message_data["data"]["name"])
+            if not game_started:
+                start_game()
+        elif message_type == "answer":
+            handle_answer(conn, message_data["data"]["answer"])
+    except json.JSONDecodeError:
+        print(f"Error decoding message: {message}")
+
+
+def handle_name(conn, name):
+    addr = conn.getpeername()
+    clients[addr] = {"name": name, "score": 0}
+    client_answers[addr] = False
+    client_states[addr] = "active"
+    print(f"Set name for {addr} to {name}")
+
+    confirmation_message = json.dumps(
+        {"type": "confirm", "data": {"message": f"Welcome, {name}!"}}
+    )
+    send_message(conn, confirmation_message)
+
+    if game_started:
+        waiting_message = json.dumps(
+            {"type": "wait", "data": {"message": "Please wait for the next question."}}
+        )
+        send_message(conn, waiting_message)
+        print(f"{name} has to wait for the next question")
+    elif not game_started:
+        start_game()
+
+
+def handle_client_disconnect(conn):
+    addr = conn.getpeername()
+
+    if addr in clients:
+
+        if client_states.get(addr) == "playing":
+            print(f"{clients[addr]['name']} has disconnected.")
+
+            del client_answers[addr]
+            del client_states[addr]
+            del clients[addr]
+
+            if not any(state == "playing" for state in client_states.values()):
+                print("No active players, shutting down...")
+                sys.exit(0)
+        else:
+
+            print(f"Inactive client {addr} disconnected.")
+            del client_states[addr]
+            del clients[addr]
+
+    sel.unregister(conn)
+    conn.close()
+
+    if addr in client_answers:
+        del client_answers[addr]
+
+
+def start_game():
+    global game_started, question_index, game_questions
+    game_started = True
+    question_index = 0
+    game_questions = random.sample(questions, 10)
+    send_next_question()
+
+
+def send_next_question():
+    global question_index
+    print(f"send_next_question called: current index = {question_index}")
+
+    if question_index < len(game_questions):
+        question = game_questions[question_index]
+        label = f"Question {question_index + 1}"
+
+        question_message = json.dumps(
+            {
+                "type": "question",
+                "data": {
+                    "label": label,
+                    "question": question["question"],
+                    "choices": question["choices"],
+                },
+            }
+        )
+
+        for addr in clients:
+            if client_states[addr] == "playing":
+                client_answers[addr] = False
+
+        for addr in client_states:
+            if client_states[addr] == "active":
+                client_states[addr] = "playing"
+                print(f"{clients[addr]['name']} is now playing")
+
+        for conn in sel.get_map().values():
+            if conn.data == read_message:
+                addr = conn.fileobj.getpeername()
+                if addr in clients and client_states[addr] == "playing":
+                    name = clients[addr]["name"]
+                    print(f"Sending {label} to {name} {addr}")
+                    send_message(conn.fileobj, question_message)
+
+        question_index += 1
+    else:
+
+        print("All questions asked, game over.")
+        send_final_scoreboard_and_thank_you()
+
+
+def send_final_scoreboard_and_thank_you():
+
+    send_scoreboard()
+
+    thank_you_message = json.dumps(
+        {
+            "type": "thank_you",
+            "data": {"message": "Thank you for playing the quiz game!"},
+        }
+    )
+
+    for conn in sel.get_map().values():
+        if conn.data == read_message:
+            send_message(conn.fileobj, thank_you_message)
+
+    print("Game over. Thank you message sent to all players.")
+
+
+def handle_answer(conn, answer):
+    global question_index
+    addr = conn.getpeername()
+
+    if question_index > 0:
+        correct_answer = questions[question_index - 1]["answer"]
+
+        if answer == correct_answer:
+            print(f"{clients[addr]['name']} answered correctly!")
+            clients[addr]["score"] += 1
+        else:
+            print(f"{clients[addr]['name']} answered incorrectly.")
+
+        client_answers[addr] = True
+
+        if all(
+            client_answers[addr]
+            for addr in client_answers
+            if client_states[addr] == "playing"
+        ):
+            send_scoreboard()
+            question_index += 1
+            send_next_question()
+    else:
+        print("Question index is not properly set, waiting for the first question.")
+
+
+def send_scoreboard():
+    scoreboard = {clients[addr]["name"]: clients[addr]["score"] for addr in clients}
+    scoreboard_message = json.dumps({"type": "scoreboard", "data": scoreboard})
+    for conn in sel.get_map().values():
+        if conn.data == read_message:  # Only send to active clients
+            addr = conn.fileobj.getpeername()
+            if addr in clients:  # Check if the client has set their name
+                send_message(conn.fileobj, scoreboard_message)
+
+
+def start_server(host, port):
+    server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_sock.bind((host, int(port)))
+    server_sock.listen()
+    print(f"Server started on {host}:{port}")
+    server_sock.setblocking(False)
+    sel.register(server_sock, selectors.EVENT_READ, accept_connection)
 
     while True:
-        events = sel.select(timeout=None)
-        for key, mask in events:
-            if key.data is None:
-                accept_wrapper(key.fileobj, num_players)
-            else:
-                service_connection(key, mask)
+        events = sel.select()
+        for key, _ in events:
+            callback = key.data
+            callback(key.fileobj)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python3 game-server.py <IP> <Port> <num players>")
+    if len(sys.argv) != 3:
+        print("Usage: python3 server.py <IP> <Port>")
         sys.exit(1)
 
-    ip = sys.argv[1]
-    port = int(sys.argv[2])
-    num_players = int(sys.argv[3])
-
-    start_server(ip, port, num_players)
+    host = sys.argv[1]
+    port = sys.argv[2]
+    start_server(host, port)
