@@ -4,6 +4,8 @@ import sys
 import json
 import random
 
+from datetime import datetime
+
 sel = selectors.DefaultSelector()
 clients = {}
 client_answers = {}
@@ -34,42 +36,45 @@ questions = [
     {
         "question": "How many heads are in the tricep?",
         "choices": ["Four", "Two", "Three", "None"],
-        "answer": "Three"
+        "answer": "3"
     },
     {
         "question": "Who gave Luffy the straw hat?",
         "choices": ["Zoro", "His dad", "Garp", "Shanks"],
-        "answer": "Shanks"
+        "answer": "4"
     },
     {
         "question": "Who is the first boss players will find in Elden Ring after leaving the cave?",
         "choices": ["Morgot", "Tree Sentinal", "Knight Man", "Agheel"],
-        "answer": "Tree Sentinal"
+        "answer": "2"
     },
     {
         "question": "Who won Mr. Olympia Classic Physique in 2024?",
         "choices": ["Cbum", "Urs", "Sam Sulek", "Jeff Nippard"],
-        "answer": "Cbum"
+        "answer": "1"
     },
     {
         "question": "How tall is Mount Everest",
         "choices": ["Quite", "Not at all", "Kinda", "Mount what?"],
-        "answer": "Quite"
+        "answer": "1"
     },
     {
         "question": "Who is the most meta in Mario Kart Wii",
         "choices": ["Dry Bones Bullet Bike", "Mario Standard Kart", "Funky Kong Flame Runner", "Luigi Mach Bike"],
-        "answer": "Funky Kong Flame Runner"
+        "answer": "3"
     },
     {
         "question": "What artist almost bought my friend's childhood home in Foco?",
         "choices": ["Train", "21 Savage", "Aesop Rock", "Sting"],
-        "answer": "Train"
+        "answer": "1"
     }
 ]
 question_index = 0
 game_started = False
 
+def log_connection_status(action, addr):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] Client {action} at {addr}. Total players: {len(clients)}")
 
 def send_message(conn, message):
     """Send a message to the client with a newline delimiter."""
@@ -78,7 +83,7 @@ def send_message(conn, message):
 
 def accept_connection(sock):
     conn, addr = sock.accept()
-    print(f"Accepted connection from {addr}")
+    log_connection_status("connected", addr)
     conn.setblocking(False)
     sel.register(conn, selectors.EVENT_READ, read_message)
 
@@ -131,14 +136,17 @@ def handle_name(conn, name):
     )
     send_message(conn, confirmation_message)
 
-    if game_started:
+    # Start the game only if it hasn’t already started
+    if not game_started:
+        start_game()
+    else:
+        # Inform new player to wait if the game is ongoing
         waiting_message = json.dumps(
             {"type": "wait", "data": {"message": "Please wait for the next question."}}
         )
         send_message(conn, waiting_message)
         print(f"{name} has to wait for the next question")
-    elif not game_started:
-        start_game()
+
 
 
 def handle_client_disconnect(conn):
@@ -174,7 +182,19 @@ def start_game():
     game_started = True
     question_index = 0
     game_questions = random.sample(questions, 10)
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] Game started with {len(clients)} players.")
+    print("Game questions and answers for this session:")
+    for idx, q in enumerate(game_questions):
+        print(f"Q{idx+1}: {q['question']} | Answer: {q['answer']}")
     send_next_question()
+
+def send_final_scoreboard_and_thank_you():
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] Game over. Final scoreboard sent.")
+    send_scoreboard()
+    # (Rest of the code)
+
 
 
 def send_next_question():
@@ -184,6 +204,11 @@ def send_next_question():
     if question_index < len(game_questions):
         question = game_questions[question_index]
         label = f"Question {question_index + 1}"
+        
+        # Log the question details for debugging
+        print(f"Sending {label}: {question['question']}")
+        print(f"Choices: {question['choices']}")
+        print(f"Correct Answer: {question['answer']}")
 
         question_message = json.dumps(
             {
@@ -195,7 +220,7 @@ def send_next_question():
                 },
             }
         )
-
+        
         for addr in clients:
             if client_states[addr] == "playing":
                 client_answers[addr] = False
@@ -215,9 +240,9 @@ def send_next_question():
 
         question_index += 1
     else:
-
         print("All questions asked, game over.")
         send_final_scoreboard_and_thank_you()
+
 
 
 def send_final_scoreboard_and_thank_you():
@@ -243,9 +268,15 @@ def handle_answer(conn, answer):
     addr = conn.getpeername()
 
     if question_index > 0:
-        correct_answer = questions[question_index - 1]["answer"]
+        # Fetch the correct answer index for the current question
+        correct_answer_index = game_questions[question_index - 1]["answer"]
+        
+        # Debugging output to log both answers and question details
+        print(f"Received answer from {clients[addr]['name']}: {answer}")
+        print(f"Expected answer index for '{game_questions[question_index - 1]['question']}': {correct_answer_index}")
 
-        if answer == correct_answer:
+        # Compare the received answer index to the correct answer index
+        if answer.strip() == correct_answer_index:
             print(f"{clients[addr]['name']} answered correctly!")
             clients[addr]["score"] += 1
         else:
@@ -263,6 +294,8 @@ def handle_answer(conn, answer):
             send_next_question()
     else:
         print("Question index is not properly set, waiting for the first question.")
+
+
 
 
 def send_scoreboard():
