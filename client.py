@@ -30,10 +30,17 @@ def handle_message(client_sock, message):
             print("Server:", msg["data"]["message"])
         elif message_type == "wait":
             print("Server:", msg["data"]["message"])
+        elif message_type == "winner":
+            print("Server:", msg["data"]["message"])
+        elif message_type == "reset_prompt":
+            print("Server:", msg["data"]["message"])
+            response = input("Your choice (yes/no): ").strip()
+            client_sock.send((response + "\n").encode())
         else:
             print("Unknown message type:", message_type)
     except json.JSONDecodeError:
         print("Error decoding message:", message)
+
 
 
 def send_name(client_sock, name):

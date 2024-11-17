@@ -1,10 +1,21 @@
+import logging
 import socket
 import selectors
 import sys
 import json
 import random
-
 from datetime import datetime
+
+log_file = "server.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file)
+    ]
+)
+logger = logging.getLogger()
 
 sel = selectors.DefaultSelector()
 clients = {}
@@ -13,7 +24,7 @@ client_states = {}
 game_questions = []
 
 questions = [
-    {
+     {
         "question": "What is the capital of France?",
         "choices": ["Paris", "Rome", "Madrid", "Berlin"],
         "answer": "1"
@@ -69,17 +80,16 @@ questions = [
         "answer": "1"
     }
 ]
+
 question_index = 0
 game_started = False
 
 def log_connection_status(action, addr):
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] Client {action} at {addr}. Total players: {len(clients)}")
+    logger.info(f"Client {action} at {addr}. Total players: {len(clients)}")
 
 def send_message(conn, message):
     """Send a message to the client with a newline delimiter."""
     conn.send((message + "\n").encode())
-
 
 def accept_connection(sock):
     conn, addr = sock.accept()
@@ -92,22 +102,18 @@ def accept_connection(sock):
     )
     send_message(conn, welcome_message)
 
-
 def read_message(conn):
     try:
         data = conn.recv(1024)
         if data:
-
             messages = data.decode().split("\n")
             for message in messages:
                 if message:
                     handle_message(conn, message)
         else:
-
             handle_client_disconnect(conn)
     except ConnectionError:
         handle_client_disconnect(conn)
-
 
 def handle_message(conn, message):
     try:
@@ -121,52 +127,43 @@ def handle_message(conn, message):
         elif message_type == "answer":
             handle_answer(conn, message_data["data"]["answer"])
     except json.JSONDecodeError:
-        print(f"Error decoding message: {message}")
-
+        logger.error(f"Error decoding message: {message}")
 
 def handle_name(conn, name):
     addr = conn.getpeername()
     clients[addr] = {"name": name, "score": 0}
     client_answers[addr] = False
     client_states[addr] = "active"
-    print(f"Set name for {addr} to {name}")
+    logger.info(f"Set name for {addr} to {name}")
 
     confirmation_message = json.dumps(
         {"type": "confirm", "data": {"message": f"Welcome, {name}!"}}
     )
     send_message(conn, confirmation_message)
 
-    # Start the game only if it hasn’t already started
     if not game_started:
         start_game()
     else:
-        # Inform new player to wait if the game is ongoing
         waiting_message = json.dumps(
             {"type": "wait", "data": {"message": "Please wait for the next question."}}
         )
         send_message(conn, waiting_message)
-        print(f"{name} has to wait for the next question")
-
-
+        logger.info(f"{name} has to wait for the next question")
 
 def handle_client_disconnect(conn):
     addr = conn.getpeername()
-
     if addr in clients:
-
         if client_states.get(addr) == "playing":
-            print(f"{clients[addr]['name']} has disconnected.")
-
+            logger.info(f"{clients[addr]['name']} has disconnected.")
             del client_answers[addr]
             del client_states[addr]
             del clients[addr]
 
             if not any(state == "playing" for state in client_states.values()):
-                print("No active players, shutting down...")
+                logger.info("No active players, shutting down...")
                 sys.exit(0)
         else:
-
-            print(f"Inactive client {addr} disconnected.")
+            logger.info(f"Inactive client {addr} disconnected.")
             del client_states[addr]
             del clients[addr]
 
@@ -176,39 +173,26 @@ def handle_client_disconnect(conn):
     if addr in client_answers:
         del client_answers[addr]
 
-
 def start_game():
     global game_started, question_index, game_questions
     game_started = True
     question_index = 0
     game_questions = random.sample(questions, 10)
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] Game started with {len(clients)} players.")
-    print("Game questions and answers for this session:")
+    logger.info(f"Game started with {len(clients)} players.")
+    logger.info("Game questions and answers for this session:")
     for idx, q in enumerate(game_questions):
-        print(f"Q{idx+1}: {q['question']} | Answer: {q['answer']}")
+        logger.info(f"Q{idx+1}: {q['question']} | Answer: {q['answer']}")
     send_next_question()
-
-def send_final_scoreboard_and_thank_you():
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{timestamp}] Game over. Final scoreboard sent.")
-    send_scoreboard()
-    # (Rest of the code)
-
-
 
 def send_next_question():
     global question_index
-    print(f"send_next_question called: current index = {question_index}")
-
     if question_index < len(game_questions):
         question = game_questions[question_index]
         label = f"Question {question_index + 1}"
-        
-        # Log the question details for debugging
-        print(f"Sending {label}: {question['question']}")
-        print(f"Choices: {question['choices']}")
-        print(f"Correct Answer: {question['answer']}")
+
+        logger.info(f"Sending {label}: {question['question']}")
+        logger.info(f"Choices: {question['choices']}")
+        logger.info(f"Correct Answer: {question['answer']}")
 
         question_message = json.dumps(
             {
@@ -220,7 +204,7 @@ def send_next_question():
                 },
             }
         )
-        
+
         for addr in clients:
             if client_states[addr] == "playing":
                 client_answers[addr] = False
@@ -228,25 +212,88 @@ def send_next_question():
         for addr in client_states:
             if client_states[addr] == "active":
                 client_states[addr] = "playing"
-                print(f"{clients[addr]['name']} is now playing")
+                logger.info(f"{clients[addr]['name']} is now playing")
 
         for conn in sel.get_map().values():
             if conn.data == read_message:
                 addr = conn.fileobj.getpeername()
                 if addr in clients and client_states[addr] == "playing":
                     name = clients[addr]["name"]
-                    print(f"Sending {label} to {name} {addr}")
+                    logger.info(f"Sending {label} to {name} {addr}")
                     send_message(conn.fileobj, question_message)
 
         question_index += 1
     else:
-        print("All questions asked, game over.")
-        send_final_scoreboard_and_thank_you()
+        logger.info("All questions asked, determining winner.")
+        determine_winner()
+
+def determine_winner():
+    max_score = max(client["score"] for client in clients.values())
+    winners = [client["name"] for client in clients.values() if client["score"] == max_score]
+
+    if len(winners) == 1:
+        winner_message = f"{winners[0]} won the game with {max_score} points!"
+    else:
+        winner_message = f"{' and '.join(winners)} tied the game with {max_score} points!"
+
+    logger.info(winner_message)
+
+    winner_announcement = json.dumps(
+        {"type": "winner", "data": {"message": winner_message}}
+    )
+    for conn in sel.get_map().values():
+        if conn.data == read_message:
+            send_message(conn.fileobj, winner_announcement)
+
+    reset_game()
+
+
+def reset_game():
+    global clients, client_answers, client_states
+    
+    reset_prompt = json.dumps(
+        {"type": "reset_prompt", "data": {"message": "Do you want to play again? (yes/no)"}}
+    )
+    logger.info("Prompting clients to reset the game.")
+
+    for conn in sel.get_map().values():
+        if conn.data == read_message:
+            send_message(conn.fileobj, reset_prompt)
+
+    responses = {}
+    while len(responses) < len(clients):
+        events = sel.select()
+        for key, _ in events:
+            conn = key.fileobj
+            addr = conn.getpeername()
+            if addr not in responses:
+                try:
+                    data = conn.recv(1024).decode().strip()
+                    if data.lower() == "yes":
+                        responses[addr] = "yes"
+                        logger.info(f"{clients[addr]['name']} chose to continue.")
+                    elif data.lower() == "no":
+                        responses[addr] = "no"
+                        logger.info(f"{clients[addr]['name']} chose to exit.")
+                        handle_client_disconnect(conn)
+                except ConnectionError:
+                    handle_client_disconnect(conn)
+                    responses[addr] = "no"
+
+    clients = {addr: info for addr, info in clients.items() if responses.get(addr) == "yes"}
+    client_answers = {addr: False for addr in clients}
+    client_states = {addr: "active" for addr in clients}
+
+    if clients:
+        logger.info("Restarting the game with remaining clients.")
+        start_game()
+    else:
+        logger.info("No clients want to continue. Shutting down.")
+        sys.exit(0)
 
 
 
 def send_final_scoreboard_and_thank_you():
-
     send_scoreboard()
 
     thank_you_message = json.dumps(
@@ -260,27 +307,22 @@ def send_final_scoreboard_and_thank_you():
         if conn.data == read_message:
             send_message(conn.fileobj, thank_you_message)
 
-    print("Game over. Thank you message sent to all players.")
-
+    logger.info("Game over. Thank you message sent to all players.")
 
 def handle_answer(conn, answer):
     global question_index
     addr = conn.getpeername()
 
     if question_index > 0:
-        # Fetch the correct answer index for the current question
         correct_answer_index = game_questions[question_index - 1]["answer"]
-        
-        # Debugging output to log both answers and question details
-        print(f"Received answer from {clients[addr]['name']}: {answer}")
-        print(f"Expected answer index for '{game_questions[question_index - 1]['question']}': {correct_answer_index}")
+        logger.info(f"Received answer from {clients[addr]['name']}: {answer}")
+        logger.info(f"Expected answer index: {correct_answer_index}")
 
-        # Compare the received answer index to the correct answer index
         if answer.strip() == correct_answer_index:
-            print(f"{clients[addr]['name']} answered correctly!")
+            logger.info(f"{clients[addr]['name']} answered correctly!")
             clients[addr]["score"] += 1
         else:
-            print(f"{clients[addr]['name']} answered incorrectly.")
+            logger.info(f"{clients[addr]['name']} answered incorrectly.")
 
         client_answers[addr] = True
 
@@ -290,29 +332,24 @@ def handle_answer(conn, answer):
             if client_states[addr] == "playing"
         ):
             send_scoreboard()
-            question_index += 1
             send_next_question()
     else:
-        print("Question index is not properly set, waiting for the first question.")
-
-
-
+        logger.warning("Question index is not properly set, waiting for the first question.")
 
 def send_scoreboard():
     scoreboard = {clients[addr]["name"]: clients[addr]["score"] for addr in clients}
     scoreboard_message = json.dumps({"type": "scoreboard", "data": scoreboard})
     for conn in sel.get_map().values():
-        if conn.data == read_message:  # Only send to active clients
+        if conn.data == read_message:
             addr = conn.fileobj.getpeername()
-            if addr in clients:  # Check if the client has set their name
+            if addr in clients:
                 send_message(conn.fileobj, scoreboard_message)
-
 
 def start_server(host, port):
     server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_sock.bind((host, int(port)))
     server_sock.listen()
-    print(f"Server started on {host}:{port}")
+    logger.info(f"Server started on {host}:{port}")
     server_sock.setblocking(False)
     sel.register(server_sock, selectors.EVENT_READ, accept_connection)
 
@@ -322,10 +359,9 @@ def start_server(host, port):
             callback = key.data
             callback(key.fileobj)
 
-
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python3 server.py <IP> <Port>")
+        logger.error("Usage: python3 server.py <IP> <Port>")
         sys.exit(1)
 
     host = sys.argv[1]
