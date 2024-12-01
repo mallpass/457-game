@@ -20,6 +20,8 @@ I am satisfied with the functionality and error checking of the base client scri
 called clientui. If you would like to try it I've listed the instructions below. When I test it, the gui seems to run just fine, but please note that there may 
 be errors that occur due to my lack of knowledge/understanding/testing.
 
+Not really expecting to get the extra credit for my GUI since I haven't gotten it totally figured out, but I figured it wouldn't hurt to leave the work in. 
+
 **How to play with the GUI**
 1. **Start the server:** Run the `server.py` script with `python3 server.py <IP address> <Port Number>`
 2. **Connect clients:** Run the `clientui.py` script with `python3 clientui.py <IP address> <Port Number>`
