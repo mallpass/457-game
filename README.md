@@ -33,3 +33,4 @@ be errors that occur due to my lack of knowledge/understanding/testing.
 **Technologies used:**
 * Python
 * Sockets
+* PyQt5
