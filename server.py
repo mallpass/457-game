@@ -4,6 +4,7 @@ import selectors
 import sys
 import json
 import random
+import argparse
 from datetime import datetime
 
 log_file = "server.log"
@@ -150,28 +151,48 @@ def handle_name(conn, name):
         send_message(conn, waiting_message)
         logger.info(f"{name} has to wait for the next question")
 
+def broadcast_message(message):
+    """Send a message to all connected clients."""
+    for conn in sel.get_map().values():
+        if conn.data == read_message:
+            addr = conn.fileobj.getpeername()
+            if addr in clients:
+                try:
+                    send_message(conn.fileobj, message)
+                except ConnectionError:
+                    logger.error(f"Failed to send message to client {addr}")
+
+
 def handle_client_disconnect(conn):
     addr = conn.getpeername()
     if addr in clients:
-        if client_states.get(addr) == "playing":
-            logger.info(f"{clients[addr]['name']} has disconnected.")
-            del client_answers[addr]
-            del client_states[addr]
-            del clients[addr]
+        client_name = clients[addr]["name"]
+        logger.info(f"{client_name} has disconnected.")
 
-            if not any(state == "playing" for state in client_states.values()):
-                logger.info("No active players, shutting down...")
-                sys.exit(0)
-        else:
-            logger.info(f"Inactive client {addr} disconnected.")
-            del client_states[addr]
-            del clients[addr]
+        # Notify remaining clients about the disconnection
+        disconnect_message = json.dumps(
+            {"type": "client_disconnect", "data": {"message": f"{client_name} has disconnected."}}
+        )
+        broadcast_message(disconnect_message)
+
+        # Remove client data
+        del client_answers[addr]
+        del client_states[addr]
+        del clients[addr]
+
+        # If no active players remain, shut down the server
+        if not any(state == "playing" for state in client_states.values()):
+            logger.info("No active players, shutting down...")
+            sys.exit(0)
+    else:
+        logger.info(f"Inactive client {addr} disconnected.")
 
     sel.unregister(conn)
     conn.close()
 
     if addr in client_answers:
         del client_answers[addr]
+
 
 def start_game():
     global game_started, question_index, game_questions
@@ -250,17 +271,21 @@ def determine_winner():
 
 def reset_game():
     global clients, client_answers, client_states
-    
+
     reset_prompt = json.dumps(
         {"type": "reset_prompt", "data": {"message": "Do you want to play again? (yes/no)"}}
     )
     logger.info("Prompting clients to reset the game.")
 
+    # Send reset prompt to all clients
     for conn in sel.get_map().values():
         if conn.data == read_message:
             send_message(conn.fileobj, reset_prompt)
 
     responses = {}
+    disconnect_queue = []  # Track clients who chose "no"
+
+    # Collect responses from all clients
     while len(responses) < len(clients):
         events = sel.select()
         for key, _ in events:
@@ -274,22 +299,33 @@ def reset_game():
                         logger.info(f"{clients[addr]['name']} chose to continue.")
                     elif data.lower() == "no":
                         responses[addr] = "no"
-                        logger.info(f"{clients[addr]['name']} chose to exit.")
-                        handle_client_disconnect(conn)
+                        logger.info(f"{clients[addr]['name']} chose not to continue.")
+                        send_message(conn, json.dumps({"type": "thank_you", "data": {"message": "Thank you for playing!"}}))
+                        disconnect_queue.append(conn)  # Queue for disconnection after responses are processed
                 except ConnectionError:
                     handle_client_disconnect(conn)
                     responses[addr] = "no"
 
+    # Disconnect clients who chose "no" after all responses are collected
+    for conn in disconnect_queue:
+        handle_client_disconnect(conn)
+
+    # Filter out disconnected clients
     clients = {addr: info for addr, info in clients.items() if responses.get(addr) == "yes"}
     client_answers = {addr: False for addr in clients}
     client_states = {addr: "active" for addr in clients}
 
+    # Determine if there are players left to restart
     if clients:
         logger.info("Restarting the game with remaining clients.")
         start_game()
     else:
         logger.info("No clients want to continue. Shutting down.")
+        send_final_scoreboard_and_thank_you()
         sys.exit(0)
+
+
+
 
 
 
@@ -360,10 +396,10 @@ def start_server(host, port):
             callback(key.fileobj)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        logger.error("Usage: python3 server.py <IP> <Port>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Start the server.")
+    parser.add_argument("-p", "--port", type=int, required=True, help="Port to bind the server.")
+    args = parser.parse_args()
 
-    host = sys.argv[1]
-    port = sys.argv[2]
+    host = "0.0.0.0"
+    port = args.port
     start_server(host, port)
