@@ -36,3 +36,12 @@ Not really expecting to get the extra credit for my GUI since I haven't gotten i
 * Python
 * Sockets
 * PyQt5
+
+
+**Potential Security Issues**
+The scripts both lack any kind of security measures. Neither the server nor client perform any kind of authentication; this issue by itself is not of incredibly high priority since the server doesn't store any important data. However, someone
+could take advantage of this lack of authentication as well as the lack of rate limiting to overwhelm the server. The server does not limit the amount of clients that could connect nor does it limit the amount of messages or length of these messages
+that can be sent by the client (making it particularly vulnerable to bufferover flow attacks) The communication between the server and client is also very vulnerable. Communication is done in plaintext making it vulnerable to being evesdropped on,
+and the server log file is unencrypted. Communication also lacks any input validation so someone smarter than me could probably find a message to send that may cause unexpected behavior in the server. Input validation and adding resource limits could
+solve some of these problems, using tls for communication would also help as well as encrypting the server log file. The GUI script solves some of these problems, removing most instances where the client is typing in favor of a button, however the same
+vulnerabilites exist here as in the base client script. 
