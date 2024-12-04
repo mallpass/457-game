@@ -3,28 +3,38 @@
 For my project I will be making a simple quiz show game using TCP sockets and python. Hoping to be able to add plenty of features and learn about networks.
 
 **How to play:**
-1. **Start the server:** Run the `server.py` script with `python3 server.py <IP address> <Port Number>`
-2. **Connect clients:** Run the `client.py` script with `python3 client.py <IP address> <Port Number>`
+1. **Start the server:** Run the `server.py` script with `python3 server.py -p <Port Number>`
+2. **Connect clients:** Run the `client.py` script with `python3 client.py -i <IP address> -p <Port Number>`
 3. **Enter Player/Client Names:** Once the connected to the server, players will be prompted to enter thier names.
 4. **Game Start:** Once one player has entered their name 10 questions will be randomly selected from the question bank for play.
 5. **Mid-game connection:** If a player joins mid-game, they will be prompted to enter their name as normal and be asked to wait until the next question is asked.
 6. **Answer Selection:** Players will be asked multiple choice questions. To answer enter in the full text of the choice you think is correct. Every player's score will be broadcast to all connected clients at the end of every turn.
 7. **End Game:** After the last question is asked and answered the scoreboard wil be displayed and a winner will be declared. 
-8. **Game Reset:** After the winner is declared all players are asked if they'd like to play again. Type yes or no in response. Scores will carry over and if a player chooses not to continue they will be disconnected from the server. 
+8. **Game Reset:** After the winner is declared all players are asked if they'd like to play again. Type yes or no in response. Scores will carry over and if a player chooses not to continue they will be disconnected from the server.
+
+**Roadmap**
+If I were to continue working on this project the next step would be to implement an error free gui. I tried working with PyQT5 for the first time to get the extra credit and I got a semi-functional script made (details for how to run 
+are provided below, I apologize for any potential confusion over leaving the gui script in the repo, but I figured it would not hurt to leave in). After ironing out the gui the next step would be to implement some security measures, more info 
+on the security risks of my script and the improvements I would make are also provided below. I am pretty satisfied with the core functionallity of the project, especially how it relates to networking.
+
+**Retrospective**
+Something I really loved about the class and the project were how the homework assignments were related to the project. It was very nice being able to go through the homework assignments and get a feel for the bigger picture with some guidence
+then be able to apply what I learned in an open ended project like this. I am really satisfied with the messaging functionality, how the server handles multiple clients and synchronization, and the quality/readability of the code I wrote. 
+
+Aside from the gui and security (or lack thereof), somethings that I think I could improve include: more questions and a better way to store the questions (maybe a separate file rather than in the script itself), making the game more fair
+to those who join late, and more timely notifications to players about errors and disconnects. 
  
 
 **GUI Update**
-
-For the final update I wanted to get a gui working for the game as making gui's is something I do not have any experience with. 
-I am satisfied with the functionality and error checking of the base client script so in my attempts to get a gui working I chose to make a serparate client script 
-called clientui. If you would like to try it I've listed the instructions below. When I test it, the gui seems to run just fine, but please note that there may 
+ 
+I am satisfied with the functionality and error checking of the base client script (client.py) so in my attempts to get a gui working I chose to make a serparate client script (clientui.py).
+If you would like to try it I've listed the instructions below. When I test it, the gui seems to run just fine, but please note that there may 
 be errors that occur due to my lack of knowledge/understanding/testing.
 
-Not really expecting to get the extra credit for my GUI since I haven't gotten it totally figured out, but I figured it wouldn't hurt to leave the work in. 
 
 **How to play with the GUI**
-1. **Start the server:** Run the `server.py` script with `python3 server.py <IP address> <Port Number>`
-2. **Connect clients:** Run the `clientui.py` script with `python3 clientui.py <IP address> <Port Number>`
+1. **Start the server:** Run the `server.py` script with `python3 server.py -p <Port Number>`
+2. **Connect clients:** Run the `clientui.py` script with `python3 clientui.py -i <IP address> -p <Port Number>`
 3. **Enter Player/Client Names:** Once the connected to the server, two new windows will launch, the first will prompt players to enter thier names.
 4. **Game Start:** Once one player has entered their name 10 questions will be randomly selected from the question bank for play.
 5. **Mid-game connection:** If a player joins mid-game, they will be prompted to enter their name as normal and be asked to wait until the next question is asked.
